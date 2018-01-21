@@ -1,0 +1,91 @@
+#!/usr/bin/env php
+
+<?php
+    require 'vendor/autoload.php';
+
+    const DIGITAL_OCEAN_API_URL = 'https://api.digitalocean.com/v2/';
+    const PUBLIC_IP_API_URL = 'http://ipecho.net/plain';
+    const CONFIG_FILE_NAME = 'config.json';
+
+    if (!file_exists(CONFIG_FILE_NAME)) {
+        die(CONFIG_FILE_NAME . " config file does not exists.\n");
+    }
+
+    $config_file_data = trim(file_get_contents(CONFIG_FILE_NAME));
+    if (!$config_file_data) {
+        die(CONFIG_FILE_NAME . " config file is empty.\n");
+    }
+
+    if (!($config_file_data = @json_decode($config_file_data, true))) {
+        die(CONFIG_FILE_NAME . " config file is not valid json file.\n");
+    }
+
+    $digitalocean_token = isset($config_file_data['digitalocean_token']) && $config_file_data['digitalocean_token'] ? $config_file_data['digitalocean_token'] : null;
+    if (!$digitalocean_token) {
+        die(CONFIG_FILE_NAME . " config has no digitalocean token specified.\n");
+    }
+
+    $domains_to_update = isset($config_file_data['domains']) && $config_file_data['domains'] ? $config_file_data['domains'] : null;
+    if (!$domains_to_update || !count($domains_to_update)) {
+        die(CONFIG_FILE_NAME . " config has no domains to update specified.\n");
+    }
+
+    // retrieve public ip address
+    $public_ip = file_get_contents(PUBLIC_IP_API_URL);
+    if (!$public_ip) {
+        die("We could not fetch the public url from the service\n");
+    }
+
+    // instantiate guzzle client
+    $guzzle_client = new GuzzleHttp\Client([
+        'base_uri'  => DIGITAL_OCEAN_API_URL,
+        'timeout'   => 15,
+        'headers'   => [
+            'Authorization' => 'Bearer ' . $digitalocean_token
+        ]
+    ]);
+
+    // loop trough all subdomains and update them
+    foreach ($domains_to_update as $domain_to_update) {
+        $subdomain_to_update = substr($domain_to_update, 0, strpos($domain_to_update, '.'));
+        $domain_to_update = substr($domain_to_update, strpos($domain_to_update, '.') + 1);
+
+        try {
+            $domain_records = $guzzle_client->get('domains/' . $domain_to_update . '/records')->getBody()->getContents();
+            $domain_records = json_decode($domain_records, true);
+        } catch (Exception $e) {
+            echo "Failed to get domain details for: $domain_to_update\n";
+            continue;
+        }
+
+        if (!isset($domain_records['domain_records'])) {
+            echo "Response from digital ocean service about domain ($domain_to_update) is not in proper format\n";
+            continue;
+        }
+
+        $domain_records = $domain_records['domain_records'];
+
+        // find the id of subdomain we want to update
+        $subdomain_to_update_id = null;
+        foreach ($domain_records as $domain_record) {
+            if (strtoupper($subdomain_to_update) == strtoupper($domain_record['name']) && strtoupper($domain_record['type']) == 'A') {
+                $subdomain_to_update_id = $domain_record['id'];
+                break;
+            }
+        }
+
+        if (!$subdomain_to_update_id) {
+            echo "We could not find subdomain '$subdomain_to_update' in records of domain '$domain_to_update'\n";
+        }
+
+        try {
+            $domain_records = $guzzle_client->put('domains/' . $domain_to_update . '/records/' . $subdomain_to_update_id, [
+                'json'  => [ 'data'  => $public_ip ]
+            ]);
+        } catch (Exception $e) {
+            echo "Failed to update subdomain '$subdomain_to_update' for '$domain_to_update'\n";
+            continue;
+        }
+
+        echo "Updated {$subdomain_to_update}.{$domain_to_update} with public ip $public_ip\n";
+    }

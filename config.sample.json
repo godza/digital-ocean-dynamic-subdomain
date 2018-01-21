@@ -1,0 +1,4 @@
+{
+  "digitalocean_token" : "Your digitalocean.com token",
+  "domains" : [ "subdomain.yourdomain.com" ]
+}
