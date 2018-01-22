@@ -16,7 +16,7 @@ Second requirement is package manager called `composer`. [Visit Composer Website
 Choose the folder you wish to install this script in and go to that folder in your terminal.
 
 Clone this repository to that folder with following command:
-```git clone https://github.com/godza/digital-ocean-dynamic-subdomain.git .```
+```git clone https://github.com/godza/digitalocean-dynamic-subdomain.git .```
 
 After that, install necessary packages by running composer with command:
 ```composer install```
